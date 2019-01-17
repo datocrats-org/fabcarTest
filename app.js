@@ -8,14 +8,15 @@ const express = require("express");
 const app = express();
 var bodyParser = require("body-parser");
 // Constants
-const PORT = 8080;
-const HOST = "localhost";
+const PORT = 8081;
+const HOST = "192.168.29.181";
 
 // Hyperledger Bridge
 var Fabric_Client = require("fabric-client");
 var path = require("path");
 var util = require("util");
 var os = require("os");
+var cors = require('cors')
 
 //
 var fabric_client = new Fabric_Client();
@@ -88,8 +89,9 @@ app.get("/api/query", function(req, res) {
       res.status(500).json({ error: err.toString() });
     });
 });
-
-app.get("/api/invoke", function(req, res) {
+app.use(cors()); // suport json type for post data 
+app.post("/api/invoke", function(req, res) {
+	console.log(req.body)
   //테스트는 get으로 하고 실제 앱에서 데이터 보낼 때 post로 바꿔 보자
   // create the key value store as defined in the fabric-client/config/default.json 'key-value-store' setting
   Fabric_Client.newDefaultKeyValueStore({ path: store_path })
@@ -124,7 +126,7 @@ app.get("/api/invoke", function(req, res) {
         //targets : --- letting this default to the peers assigned to the channel
         chaincodeId: "fabcar",
         fcn: "createCar",
-        args: ["CAR12", "a", "b", "c", "d"],
+        args: [req.body.Key, req.body.colour, req.body.make, req.body.model, req.body.owner],//["CAR12", "a", "b", "c", "d"],
         chainId: "mychannel",
         txId: tx_id
       };
