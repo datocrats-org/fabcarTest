@@ -48,7 +48,7 @@ app.get("/api/query", function(req, res) {
       crypto_suite.setCryptoKeyStore(crypto_store);
       fabric_client.setCryptoSuite(crypto_suite);
 
-      // get the enrolled user from persistence, this user will sign all requests
+      // get the enrolled user from persistence, this user will signd all requests
       return fabric_client.getUserContext("user1", true);
     })
     .then(user_from_store => {
@@ -204,6 +204,7 @@ app.get("/api/invoke", function(req, res) {
 			console.error('Failed to send Proposal or receive valid response. Response null or status is not 200. exiting...');
 			throw new Error('Failed to send Proposal or receive valid response. Response null or status is not 200. exiting...');
 		}
+		
 	}).then((results) => {
 		console.log('Send transaction promise and event listener promise have completed');
 		// check the results in the order the promises were added to the promise all list
@@ -220,7 +221,9 @@ app.get("/api/invoke", function(req, res) {
 		}
 	}).catch((err) => {
 		console.error('Failed to invoke successfully :: ' + err);
-	});
+	}).then(()=>{
+	res.send('success invoke');})
+	
 });
 
 app.listen(PORT, HOST);
