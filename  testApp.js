@@ -4,14 +4,12 @@
 
 
 //여기까지
-var log4js = require('log4js');
-var logger = log4js.getLogger('SampleWebApp');
 const express = require("express");
 const app = express();
 var bodyParser = require("body-parser");
 // Constants
 const PORT = 8080;
-const HOST = "localhost";
+const HOST = "192.168.0.8";
 
 // Hyperledger Bridge
 var Fabric_Client = require("fabric-client");
@@ -19,9 +17,6 @@ var path = require("path");
 var util = require("util");
 var os = require("os");
 var cors = require('cors')
-var expressJWT = require('express-jwt');
-var jwt = require('jsonwebtoken');
-var bearerToken = require('express-bearer-token');
 
 //
 var fabric_client = new Fabric_Client();
@@ -39,100 +34,8 @@ var store_path = path.join(__dirname, "hfc-key-store");
 console.log("Store path:" + store_path);
 var tx_id = null;
 
-
 //Attach the middleware
-app.options('*', cors());
-app.use(cors());
-//support parsing of application/json type post data
 app.use(bodyParser.json());
-//support parsing of application/x-www-form-urlencoded post data
-app.use(bodyParser.urlencoded({
-	extended: false
-}));
-// set secret variable
-app.set('secret', 'thisismysecret');
-app.use(expressJWT({
-	secret: 'thisismysecret'
-}).unless({
-	path: ['/users']
-}));
-app.use(bearerToken());
-app.use(function(req, res, next) {
-	logger.debug(' ------>>>>>> new request for %s',req.originalUrl);
-	if (req.originalUrl.indexOf('/users') >= 0) {
-		return next();
-	}
-
-	var token = req.token;
-	jwt.verify(token, app.get('secret'), function(err, decoded) {
-		if (err) {
-			res.send({
-				success: false,
-				message: 'Failed to authenticate token. Make sure to include the ' +
-					'token returned from /users call in the authorization header ' +
-					' as a Bearer token'
-			});
-			return;
-		} else {
-			// add the decoded user name and org name to the request object
-			// for the downstream code to use
-			req.username = decoded.username;
-			logger.debug(util.format('Decoded from JWT token: username - %s', decoded.username));
-			return next();
-		}
-	});
-});
-
-
-
-app.post('/users', async function(req, res) {
-	var username = req.body.username;
-	logger.debug('End point : /users');
-	logger.debug('User name : ' + username);
-	if (!username) {
-		res.json(getErrorMessage('\'username\''));
-		return;
-	}
-	var token = jwt.sign({
-		username: username,
-		exp: Math.floor(Date.now() / 1000) + 36000
-	}, app.get('secret'));
-
-	let response = Fabric_Client.newDefaultKeyValueStore({ path: store_path })
-    .then(state_store => {
-      // assign the store to the fabric client
-      fabric_client.setStateStore(state_store);
-      var crypto_suite = Fabric_Client.newCryptoSuite();
-      // use the same location for the state store (where the users' certificate are kept)
-      // and the crypto store (where the users' keys are kept)
-      var crypto_store = Fabric_Client.newCryptoKeyStore({ path: store_path });
-      crypto_suite.setCryptoKeyStore(crypto_store);
-      fabric_client.setCryptoSuite(crypto_suite);
-
-      // get the enrolled user from persistence, this user will signd all requests
-      return fabric_client.getUserContext("user1", true);
-    })
-    .then(user_from_store => {
-      if (user_from_store && user_from_store.isEnrolled()) {
-        console.log("Successfully loaded user1 from persistence");
-        member_user = user_from_store;
-      } else {
-        throw new Error("Failed to get user1.... run registerUser.js");
-	  }
-
-	  logger.debug('-- returned from registering the username %s for organization ',username);
-	  if (response && typeof response !== 'string') {
-		  logger.debug('Successfully registered the username %s for organization ',username);
-		  response.token = token;
-		  res.json(response);
-	  } else {
-		  logger.debug('Failed to register the username %s for organization  with::%s',username,response);
-		  res.json({success: false, message: response});
-	  }
-
-	});
-});
-
 app.get("/api/query", function(req, res) {
   // create the key value store as defined in the fabric-client/config/default.json 'key-value-store' setting
   Fabric_Client.newDefaultKeyValueStore({ path: store_path })
