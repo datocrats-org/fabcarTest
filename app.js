@@ -9,9 +9,11 @@ var logger = log4js.getLogger('SampleWebApp');
 const express = require("express");
 const app = express();
 var bodyParser = require("body-parser");
+var _ = require('lodash')
 // Constants
 const PORT = 8080;
 const HOST = "localhost";
+const mongoose = require('mongoose')
 
 // Hyperledger Bridge
 var Fabric_Client = require("fabric-client");
@@ -47,102 +49,167 @@ app.use(cors());
 app.use(bodyParser.json());
 //support parsing of application/x-www-form-urlencoded post data
 app.use(bodyParser.urlencoded({
-	extended: false
+  extended: false
 }));
 // set secret variable
 app.set('secret', 'thisismysecret');
 app.use(expressJWT({
-	secret: 'thisismysecret'
+  secret: 'thisismysecret'
 }).unless({
-	path: ['/users']
+  path: ['/users']
 }));
 app.use(bearerToken());
-app.use(function(req, res, next) {
-	logger.debug(' ------>>>>>> new request for %s',req.originalUrl);
-	if (req.originalUrl.indexOf('/users') >= 0) {
-		return next();
-	}
+app.use(function (req, res, next) {
+  logger.debug(' ------>>>>>> new request for %s', req.originalUrl);
+  if (req.originalUrl.indexOf('/users') >= 0) {
+    return next();
+  }
 
-	var token = req.token;
-	jwt.verify(token, app.get('secret'), function(err, decoded) {
-		if (err) {
-			res.send({
-				success: false,
-				message: 'Failed to authenticate token. Make sure to include the ' +
-					'token returned from /users call in the authorization header ' +
-					' as a Bearer token'
-			});
-			return;
-		} else {
-			// add the decoded user name and org name to the request object
-			// for the downstream code to use
-			req.username = decoded.username;
-			logger.debug(util.format('Decoded from JWT token: username - %s', decoded.username));
-			return next();
-		}
-	});
+  var token = req.token;
+  jwt.verify(token, app.get('secret'), function (err, decoded) {
+    if (err) {
+      res.send({
+        success: false,
+        message: 'Failed to authenticate token. Make sure to include the ' +
+          'token returned from /users call in the authorization header ' +
+          ' as a Bearer token'
+      });
+      return;
+    } else {
+      // add the decoded user name and org name to the request object
+      // for the downstream code to use
+      req.username = decoded.username;
+      logger.debug(util.format('Decoded from JWT token: username - %s', decoded.username));
+      return next();
+    }
+  });
 });
 
 
 
-app.post('/users', async function(req, res) {
-	var username = req.body.username;
-	logger.debug('End point : /users');
-	logger.debug('User name : ' + username);
-	if (!username) {
-		res.json(getErrorMessage('\'username\''));
-		return;
-	}
-	var token = jwt.sign({
-		username: username,
-		exp: Math.floor(Date.now() / 1000) + 36000
-	}, app.get('secret'));
 
-	let response = Fabric_Client.newDefaultKeyValueStore({ path: store_path })
-    .then(state_store => {
-      // assign the store to the fabric client
-      fabric_client.setStateStore(state_store);
-      var crypto_suite = Fabric_Client.newCryptoSuite();
-      // use the same location for the state store (where the users' certificate are kept)
-      // and the crypto store (where the users' keys are kept)
-      var crypto_store = Fabric_Client.newCryptoKeyStore({ path: store_path });
-      crypto_suite.setCryptoKeyStore(crypto_store);
-      fabric_client.setCryptoSuite(crypto_suite);
 
-      // get the enrolled user from persistence, this user will signd all requests
-      return fabric_client.getUserContext("user1", true);
-    })
-    .then(user_from_store => {
-      if (user_from_store && user_from_store.isEnrolled()) {
-        console.log("Successfully loaded user1 from persistence");
-        member_user = user_from_store;
+app.post('/users', async function (req, res) {
+
+  var username = req.body.username;
+  var password = req.body.password;
+  // function connect(){
+  //   mongoose.connect('mongodb://user:a49679947@ds163984.mlab.com:63984/jwt-tutorial', //{ dbName : 'user'}, 
+  //  { dbName: 'hyperledgerTest' ,
+  //  useNewUrlParser: true },
+  //    function(err){
+  //      if (err){
+  //        console.error('mongodb connection error', err);
+  //      } else{
+  //      console.log('mongodb connected');
+  //      }
+  //    } );
+  // }
+  // connect()
+  // mongoose.connection.on('disconnected', connect);
+  var db = mongoose.connection;
+  db.on('error', console.error)
+  db.once('open', function () {
+    console.log('Connected to mongod server')
+  })
+
+  console.log(`username: ${username}, password: ${password}`)
+  try {
+    await mongoose.connect('mongodb://user:a49679947@ds163984.mlab.com:63984/jwt-tutorial', {
+      useNewUrlParser: true
+    }, async (error, db) => {
+      if (error) {
+        console.log(error);
       } else {
-        throw new Error("Failed to get user1.... run registerUser.js");
-	  }
+        var query = {
+          username: username
+        };
+        const docs = await db.collection('hyperledgerTest').find(query).toArray();
+        console.log(docs)
+        console.log(docs[0].password)
+        if (password != docs[0].password) {
+          throw new Error('password');
+        }
+      }
+    })
 
-	  logger.debug('-- returned from registering the username %s for organization ',username);
-	  if (response && typeof response !== 'string') {
-		  logger.debug('Successfully registered the username %s for organization ',username);
-		  response.token = token;
-		  res.json(response);
-	  } else {
-		  logger.debug('Failed to register the username %s for organization  with::%s',username,response);
-		  res.json({success: false, message: response});
-	  }
 
-	});
+    logger.debug('End point : /users');
+    logger.debug('User name : ' + username);
+    if (!username) {
+      res.json(getErrorMessage('\'username\''));
+      return;
+    }
+    // if (password != doc.password) {
+    // 	res.json(getErrorMessage('\'password\''));
+    // 	return;
+    // }
+    var token = jwt.sign({
+      username: username,
+      exp: Math.floor(Date.now() / 1000) + 36000
+    }, app.get('secret'));
+
+    let response = Fabric_Client.newDefaultKeyValueStore({
+        path: store_path
+      })
+      .then(state_store => {
+        // assign the store to the fabric client
+        fabric_client.setStateStore(state_store);
+        var crypto_suite = Fabric_Client.newCryptoSuite();
+        // use the same location for the state store (where the users' certificate are kept)
+        // and the crypto store (where the users' keys are kept)
+        var crypto_store = Fabric_Client.newCryptoKeyStore({
+          path: store_path
+        });
+        crypto_suite.setCryptoKeyStore(crypto_store);
+        fabric_client.setCryptoSuite(crypto_suite);
+
+        // get the enrolled user from persistence, this user will signd all requests
+        return fabric_client.getUserContext("user1", true);
+      })
+      .then(user_from_store => {
+        if (user_from_store && user_from_store.isEnrolled()) {
+          console.log("Successfully loaded user1 from persistence");
+          member_user = user_from_store;
+        } else {
+          throw new Error("Failed to get user1.... run registerUser.js");
+        }
+
+        logger.debug('-- returned from registering the username %s for organization ', username);
+        if (response && typeof response !== 'string') {
+          logger.debug('Successfully registered the username %s for organization ', username);
+          response.token = token;
+          res.json(response);
+        } else {
+          logger.debug('Failed to register the username %s for organization  with::%s', username, response);
+          res.json({
+            success: false,
+            message: response
+          });
+        }
+
+      });
+  } catch (error) {
+    res.json({
+      "error": "ERROR"
+    })
+  }
 });
 
-app.get("/api/query", function(req, res) {
+app.get("/api/query", function (req, res) {
   // create the key value store as defined in the fabric-client/config/default.json 'key-value-store' setting
-  Fabric_Client.newDefaultKeyValueStore({ path: store_path })
+  Fabric_Client.newDefaultKeyValueStore({
+      path: store_path
+    })
     .then(state_store => {
       // assign the store to the fabric client
       fabric_client.setStateStore(state_store);
       var crypto_suite = Fabric_Client.newCryptoSuite();
       // use the same location for the state store (where the users' certificate are kept)
       // and the crypto store (where the users' keys are kept)
-      var crypto_store = Fabric_Client.newCryptoKeyStore({ path: store_path });
+      var crypto_store = Fabric_Client.newCryptoKeyStore({
+        path: store_path
+      });
       crypto_suite.setCryptoKeyStore(crypto_store);
       fabric_client.setCryptoSuite(crypto_suite);
 
@@ -157,7 +224,7 @@ app.get("/api/query", function(req, res) {
         throw new Error("Failed to get user1.... run registerUser.js");
       }
 
-     
+
       const request = {
         //targets : --- letting this default to the peers assigned to the channel
         chaincodeId: "fabcar",
@@ -180,25 +247,33 @@ app.get("/api/query", function(req, res) {
       } else {
         console.log("No payloads were returned from query");
       }
-      res.status(200).json({ response: query_responses[0].toString() });
+      res.status(200).json({
+        response: query_responses[0].toString()
+      });
     })
-    .catch(function(err) {
-      res.status(500).json({ error: err.toString() });
+    .catch(function (err) {
+      res.status(500).json({
+        error: err.toString()
+      });
     });
 });
 app.use(cors()); // suport json type for post data 
-app.post("/api/invoke", function(req, res) {
-	console.log(req.body)
+app.post("/api/invoke", function (req, res) {
+  console.log(req.body)
   //테스트는 get으로 하고 실제 앱에서 데이터 보낼 때 post로 바꿔 보자
   // create the key value store as defined in the fabric-client/config/default.json 'key-value-store' setting
-  Fabric_Client.newDefaultKeyValueStore({ path: store_path })
+  Fabric_Client.newDefaultKeyValueStore({
+      path: store_path
+    })
     .then(state_store => {
       // assign the store to the fabric client
       fabric_client.setStateStore(state_store);
       var crypto_suite = Fabric_Client.newCryptoSuite();
       // use the same location for the state store (where the users' certificate are kept)
       // and the crypto store (where the users' keys are kept)
-      var crypto_store = Fabric_Client.newCryptoKeyStore({ path: store_path });
+      var crypto_store = Fabric_Client.newCryptoKeyStore({
+        path: store_path
+      });
       crypto_suite.setCryptoKeyStore(crypto_store);
       fabric_client.setCryptoSuite(crypto_suite);
 
@@ -223,106 +298,113 @@ app.post("/api/invoke", function(req, res) {
         //targets : --- letting this default to the peers assigned to the channel
         chaincodeId: "fabcar",
         fcn: "createCar",
-        args: [req.body.Key, req.body.colour, req.body.make, req.body.model, req.body.owner],//["CAR12", "a", "b", "c", "d"],
+        args: [req.body.Key, req.body.colour, req.body.make, req.body.model, req.body.owner], //["CAR12", "a", "b", "c", "d"],
         chainId: "mychannel",
         txId: tx_id
       };
       // 그리고
       return channel.sendTransactionProposal(request);
     }).then((results) => {
-		var proposalResponses = results[0];
-		var proposal = results[1];
-		let isProposalGood = false;
-		if (proposalResponses && proposalResponses[0].response &&
-			proposalResponses[0].response.status === 200) {
-				isProposalGood = true;
-				console.log('Transaction proposal was good');
-			} else {
-				console.error('Transaction proposal was bad');
-			}
-		if (isProposalGood) {
-			console.log(util.format(
-				'Successfully sent Proposal and received ProposalResponse: Status - %s, message - "%s"',
-				proposalResponses[0].response.status, proposalResponses[0].response.message));
-	
-			// build up the request for the orderer to have the transaction committed
-			var request = {
-				proposalResponses: proposalResponses,
-				proposal: proposal
-			};
-	
-			// set the transaction listener and set a timeout of 30 sec
-			// if the transaction did not get committed within the timeout period,
-			// report a TIMEOUT status
-			var transaction_id_string = tx_id.getTransactionID(); //Get the transaction ID string to be used by the event processing
-			var promises = [];
-	
-			var sendPromise = channel.sendTransaction(request);
-			promises.push(sendPromise); //we want the send transaction first, so that we know where to check status
-	
-			// get an eventhub once the fabric client has a user assigned. The user
-			// is required bacause the event registration must be signed
-			let event_hub = channel.newChannelEventHub(peer);
-	
-			// using resolve the promise so that result status may be processed
-			// under the then clause rather than having the catch clause process
-			// the status
-			let txPromise = new Promise((resolve, reject) => {
-				let handle = setTimeout(() => {
-					event_hub.unregisterTxEvent(transaction_id_string);
-					event_hub.disconnect();
-					resolve({event_status : 'TIMEOUT'}); //we could use reject(new Error('Trnasaction did not complete within 30 seconds'));
-				}, 3000);
-				event_hub.registerTxEvent(transaction_id_string, (tx, code) => {
-					// this is the callback for transaction event status
-					// first some clean up of event listener
-					clearTimeout(handle);
-	
-					// now let the application know what happened
-					var return_status = {event_status : code, tx_id : transaction_id_string};
-					if (code !== 'VALID') {
-						console.error('The transaction was invalid, code = ' + code);
-						resolve(return_status); // we could use reject(new Error('Problem with the tranaction, event status ::'+code));
-					} else {
-						console.log('The transaction has been committed on peer ' + event_hub.getPeerAddr());
-						resolve(return_status);
-					}
-				}, (err) => {
-					//this is the callback if something goes wrong with the event registration or processing
-					reject(new Error('There was a problem with the eventhub ::'+err));
-				},
-					{disconnect: true} //disconnect when complete
-				);
-				event_hub.connect();
-	
-			});
-			promises.push(txPromise);
-	
-			return Promise.all(promises);
-		} else {
-			console.error('Failed to send Proposal or receive valid response. Response null or status is not 200. exiting...');
-			throw new Error('Failed to send Proposal or receive valid response. Response null or status is not 200. exiting...');
-		}
-		
-	}).then((results) => {
-		console.log('Send transaction promise and event listener promise have completed');
-		// check the results in the order the promises were added to the promise all list
-		if (results && results[0] && results[0].status === 'SUCCESS') {
-			console.log('Successfully sent transaction to the orderer.');
-		} else {
-			console.error('Failed to order the transaction. Error code: ' + results[0].status);
-		}
-	
-		if(results && results[1] && results[1].event_status === 'VALID') {
-			console.log('Successfully committed the change to the ledger by the peer');
-		} else {
-			console.log('Transaction failed to be committed to the ledger due to ::'+results[1].event_status);
-		}
-	}).catch((err) => {
-		console.error('Failed to invoke successfully :: ' + err);
-	}).then(()=>{
-	res.send('success invoke');})
-	
+      var proposalResponses = results[0];
+      var proposal = results[1];
+      let isProposalGood = false;
+      if (proposalResponses && proposalResponses[0].response &&
+        proposalResponses[0].response.status === 200) {
+        isProposalGood = true;
+        console.log('Transaction proposal was good');
+      } else {
+        console.error('Transaction proposal was bad');
+      }
+      if (isProposalGood) {
+        console.log(util.format(
+          'Successfully sent Proposal and received ProposalResponse: Status - %s, message - "%s"',
+          proposalResponses[0].response.status, proposalResponses[0].response.message));
+
+        // build up the request for the orderer to have the transaction committed
+        var request = {
+          proposalResponses: proposalResponses,
+          proposal: proposal
+        };
+
+        // set the transaction listener and set a timeout of 30 sec
+        // if the transaction did not get committed within the timeout period,
+        // report a TIMEOUT status
+        var transaction_id_string = tx_id.getTransactionID(); //Get the transaction ID string to be used by the event processing
+        var promises = [];
+
+        var sendPromise = channel.sendTransaction(request);
+        promises.push(sendPromise); //we want the send transaction first, so that we know where to check status
+
+        // get an eventhub once the fabric client has a user assigned. The user
+        // is required bacause the event registration must be signed
+        let event_hub = channel.newChannelEventHub(peer);
+
+        // using resolve the promise so that result status may be processed
+        // under the then clause rather than having the catch clause process
+        // the status
+        let txPromise = new Promise((resolve, reject) => {
+          let handle = setTimeout(() => {
+            event_hub.unregisterTxEvent(transaction_id_string);
+            event_hub.disconnect();
+            resolve({
+              event_status: 'TIMEOUT'
+            }); //we could use reject(new Error('Trnasaction did not complete within 30 seconds'));
+          }, 3000);
+          event_hub.registerTxEvent(transaction_id_string, (tx, code) => {
+              // this is the callback for transaction event status
+              // first some clean up of event listener
+              clearTimeout(handle);
+
+              // now let the application know what happened
+              var return_status = {
+                event_status: code,
+                tx_id: transaction_id_string
+              };
+              if (code !== 'VALID') {
+                console.error('The transaction was invalid, code = ' + code);
+                resolve(return_status); // we could use reject(new Error('Problem with the tranaction, event status ::'+code));
+              } else {
+                console.log('The transaction has been committed on peer ' + event_hub.getPeerAddr());
+                resolve(return_status);
+              }
+            }, (err) => {
+              //this is the callback if something goes wrong with the event registration or processing
+              reject(new Error('There was a problem with the eventhub ::' + err));
+            }, {
+              disconnect: true
+            } //disconnect when complete
+          );
+          event_hub.connect();
+
+        });
+        promises.push(txPromise);
+
+        return Promise.all(promises);
+      } else {
+        console.error('Failed to send Proposal or receive valid response. Response null or status is not 200. exiting...');
+        throw new Error('Failed to send Proposal or receive valid response. Response null or status is not 200. exiting...');
+      }
+
+    }).then((results) => {
+      console.log('Send transaction promise and event listener promise have completed');
+      // check the results in the order the promises were added to the promise all list
+      if (results && results[0] && results[0].status === 'SUCCESS') {
+        console.log('Successfully sent transaction to the orderer.');
+      } else {
+        console.error('Failed to order the transaction. Error code: ' + results[0].status);
+      }
+
+      if (results && results[1] && results[1].event_status === 'VALID') {
+        console.log('Successfully committed the change to the ledger by the peer');
+      } else {
+        console.log('Transaction failed to be committed to the ledger due to ::' + results[1].event_status);
+      }
+    }).catch((err) => {
+      console.error('Failed to invoke successfully :: ' + err);
+    }).then(() => {
+      res.send('success invoke');
+    })
+
 });
 
 app.listen(PORT, HOST);
